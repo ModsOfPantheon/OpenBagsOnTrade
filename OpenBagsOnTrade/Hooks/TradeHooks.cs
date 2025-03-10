@@ -1,13 +1,14 @@
 using HarmonyLib;
 using Il2Cpp;
+using MelonLoader;
 
 namespace OpenBagsOnTrade.Hooks;
 
 [HarmonyPatch(typeof(EntityPlayerGameObject), nameof(EntityPlayerGameObject.NetworkStart))]
 public class OnBeginTrade
 {
-    private static bool WasCharacterWindowOpen = false;
-    private static Dictionary<Il2CppSystem.Guid, bool> SideBagsOpen = new();
+    private static bool _wasCharacterWindowOpen = false;
+    private static readonly List<UIBag> BagsToClose = new();
     
     private static void Postfix(EntityPlayerGameObject __instance)
     {
@@ -16,46 +17,54 @@ public class OnBeginTrade
         {
             return;
         }
-        
+
         if (__instance.NetworkId.Value == EntityPlayerGameObject.LocalPlayerId.Value)
         {
             __instance.Trade.add_TradeSetEvent(new Action<Trade.TradeInstance>(t =>
             {
-                foreach (var item in __instance.Inventory.items)
+                foreach (var inventoryItem in __instance.Inventory.items)
                 {
-                    if (item.Value.IsBag())
+                    if (!inventoryItem.Value.IsEquippedBag())
                     {
-                        UIBagManager.Instance.CreateBagWindowIfItDoesNotExist(item.value);
+                        continue;
+                    }
+                    
+                    UIBagManager.Instance.bagWindows.TryGetValue(inventoryItem.Value.ItemInstanceGuid, out var uiBag);
+
+                    if (uiBag == null)
+                    {
+                        uiBag = UIBagManager.Instance.CreateBagWindowIfItDoesNotExist(inventoryItem.Value);
+                    }
+
+                    if (!uiBag.Window.IsVisible)
+                    {
+                        BagsToClose.Add(uiBag);
                     }
                 }
-                WasCharacterWindowOpen = UICharacterPanel.Instance.IsVisible();
+                
+                _wasCharacterWindowOpen = UICharacterPanel.Instance.IsVisible();
                 UICharacterPanel.Instance.Show();
                 
-                foreach (var bagWindow in UIBagManager.Instance.bagWindows)
+                foreach (var bagWindow in BagsToClose)
                 {
-                    SideBagsOpen[bagWindow.Key] = bagWindow.Value.Window.IsVisible;
-                    bagWindow.Value.Window.Show();
+                    bagWindow.Window.Show();
                 }
             }));
             
             __instance.Trade.add_TradeClearedEvent(new Action<Trade.TradeInstance>(t =>
             {
-                if (!WasCharacterWindowOpen)
+                MelonLogger.Msg($"Closing {BagsToClose.Count} bags");
+                if (!_wasCharacterWindowOpen)
                 {
                     UICharacterPanel.Instance.Hide();
                 }
 
-                foreach (var bag in SideBagsOpen)
+                foreach (var bag in BagsToClose)
                 {
-                    if (!SideBagsOpen.TryGetValue(bag.Key, out var wasShown))
-                    {
-                        continue;
-                    }
-                    if (!wasShown)
-                    {
-                        UIBagManager.Instance.bagWindows[bag.Key].Window.Hide();
-                    }
+                    bag.Window.Hide();
                 }
+                
+                BagsToClose.Clear();
             }));
         }
     }
