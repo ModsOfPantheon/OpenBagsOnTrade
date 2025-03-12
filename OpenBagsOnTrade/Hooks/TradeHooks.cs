@@ -24,7 +24,7 @@ public class OnBeginTrade
             {
                 foreach (var inventoryItem in __instance.Inventory.items)
                 {
-                    if (!inventoryItem.Value.IsEquippedBag())
+                    if (!inventoryItem.Value.IsEquippedBag() || inventoryItem.value.CorpseID != 0)
                     {
                         continue;
                     }
